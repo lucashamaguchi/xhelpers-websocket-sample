@@ -49,6 +49,7 @@ class TodoRoutes extends BaseRoute<TodoService> {
             ...response,
             ...r.payload,
             method: "POST",
+            _id: response.id,
           }
         });
         return h
@@ -71,6 +72,7 @@ class TodoRoutes extends BaseRoute<TodoService> {
             ...response,
             ...r.payload,
             method: "PATCH",
+            _id: response.id,
           }
         });
         return h
@@ -91,8 +93,9 @@ class TodoRoutes extends BaseRoute<TodoService> {
           message: "[PUT] updated todo",
           response: {
             ...response,
-            ...r.payload,
             method: "PUT",
+            ...r.payload,
+            _id: response.id,
           }
         });
         return h
@@ -113,7 +116,8 @@ class TodoRoutes extends BaseRoute<TodoService> {
           message: "[DELETE] deleted todo",
           response: {
             method: "DELETE",
-            id: r.params.id
+            id: r.params.id,
+            _id: r.params.id,
           }
         });
         return h
