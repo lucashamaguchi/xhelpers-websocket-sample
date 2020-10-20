@@ -1,0 +1,186 @@
+aliases:
+  - &install-environment-requirements
+    run:
+      name: Install environment requirements
+      command: | 
+        sudo apt-get update
+        sudo apt-get install gettext-base
+        sudo curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+        sudo chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl
+  - &install-python-requirements
+    run:
+      name: Install python requirements
+      command: | 
+        python3.6 -m venv venv
+        echo "source venv/bin/activate" >> $BASH_ENV
+        . venv/bin/activate
+        pip install setuptools --upgrade
+        pip install pytest-cov
+        pip install -r requirements.txt
+  - &test
+    run:
+      name: Tests
+      command: |
+        . venv/bin/activate
+        pytest --cov=./
+        bash <(curl -s https://codecov.io/bash) -t $CODECOV_TOKEN
+defaults: &defaults
+  docker:
+    - image: circleci/python:3.6.6-stretch-browsers
+    - image: circleci/postgres:9.6-alpine-ram
+      environment:
+        POSTGRES_USER: postgres
+        POSTGRES_DB: app
+        POSTGRES_PASSWORD: postgres
+version: 2
+jobs:
+  test:
+      <<: *defaults
+      steps:
+        - checkout
+        # - setup_remote_docker:
+        #     docker_layer_caching: true
+        - add_ssh_keys:
+            fingerprints:
+              - "ef:ef:77:6f:de:92:8e:dd:0a:19:62:f9:78:b1:21:74"
+        - <<: *install-environment-requirements
+        - <<: *install-python-requirements
+        - <<: *test
+  build:
+    docker:
+      - image: circleci/python:3.6.6-stretch-browsers
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: "Install awscli"
+          command: |
+            sudo pip install --upgrade pip
+            sudo pip install awscli
+
+      - run:
+          name: "Login in to AWS ECR"
+          command: eval $(aws ecr get-login --region $ECR_REGION --no-include-email)
+
+      - run:
+          name: "Prepare Environment"
+          command: |
+            env > .env
+
+      - run:
+          name: "build and push"
+          command: |
+            export COMMIT_TAG="${ECR_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
+            export TAG_LATEST="${ECR_REPOSITORY}:latest-${ENV}"
+            docker build -t $TAG_LATEST -t $COMMIT_TAG .
+            docker push $TAG_LATEST
+            docker push $COMMIT_TAG
+  deploy:
+    docker:
+      - image: circleci/python:3.6.6-stretch-browsers
+    steps:
+      - <<: *install-environment-requirements
+      - checkout
+      - run:
+          name: "Connect to cluster"
+          command: |
+            export KUBECONFIG="/tmp/kubeconfig"
+            kubectl config --kubeconfig=/tmp/kubeconfig set-cluster cluster --server=$K8S_CLUSTER_IP --insecure-skip-tls-verify
+            kubectl config --kubeconfig=/tmp/kubeconfig set-credentials admin --token=$K8S_TOKEN
+            kubectl config --kubeconfig=/tmp/kubeconfig set-context deploy --cluster=cluster --user=admin
+            kubectl config --kubeconfig=/tmp/kubeconfig use-context deploy
+            kubectl config --kubeconfig=/tmp/kubeconfig view
+      - run:
+          name: Deploy
+          command: |
+            export IMAGE_REPO_URL="${ECR_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
+            
+            if [ ${ENV} == "production" ]
+            then
+              export SERVICE_URL="${SERVICE_URL}"
+            else
+              export SERVICE_URL="${ENV}.${SERVICE_URL}"
+            fi
+
+            export CERT_MANAGER_ISSUE_TEMPORARY_CERTICATE="false"
+            export INGRESS_EDIT_IN_PLACE="false"
+
+            envsubst < .infra/deployment.yaml > output.yaml
+            kubectl config --kubeconfig=/tmp/kubeconfig use-context deploy
+
+            cat << EOF | kubectl --kubeconfig=/tmp/kubeconfig apply -f -
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: $K8S_NAMESPACE
+            EOF
+
+            kubectl delete --kubeconfig=/tmp/kubeconfig secret $SERVICE_NAME --namespace $K8S_NAMESPACE --ignore-not-found
+
+            env > .env
+            kubectl create --kubeconfig=/tmp/kubeconfig secret generic $SERVICE_NAME --from-env-file=.env --namespace $K8S_NAMESPACE
+            kubectl apply --kubeconfig=/tmp/kubeconfig -f output.yaml
+
+  deploy-eks:
+    docker:
+      - image: circleci/python:3.6.6-stretch-browsers
+    steps:
+      - <<: *install-environment-requirements
+      - checkout
+      - run:
+          name: "Install awscli"
+          command: |
+            sudo pip install --upgrade pip
+            sudo pip install awscli
+      - run:
+          name: "Connect to cluster"
+          command: |
+            aws eks --region $EKS_REGION update-kubeconfig --name $EKS_CLUSTER_NAME
+      - run:
+          name: Deploy
+          command: |
+            export IMAGE_REPO_URL="${ECR_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
+
+            if [ ${ENV} == "production" ]
+            then
+              export SERVICE_URL="${SERVICE_URL}"
+            else
+              export SERVICE_URL="${ENV}.${SERVICE_URL}"
+            fi
+
+            export CERT_MANAGER_ISSUE_TEMPORARY_CERTICATE="true"
+            export INGRESS_EDIT_IN_PLACE="true"
+
+            envsubst < .infra/deployment.yaml > output.yaml
+
+            kubectl delete secret $SERVICE_NAME --namespace $K8S_NAMESPACE --ignore-not-found
+
+            env > .env
+            kubectl create secret generic $SERVICE_NAME --from-env-file=.env --namespace $K8S_NAMESPACE
+            kubectl apply -f output.yaml
+workflows:
+  version: 2
+  development:
+    jobs:
+      # - test:
+      #     context: test
+      #     filters:
+      #       branches:
+      #         only: 
+      #           - master
+      - build:
+          context: development-viajjar
+          filters:
+            branches:
+              only: 
+                - master
+          # requires:
+          #   - test
+      - deploy:
+          requires:
+            - build
+          context: development-viajjar
+          filters:
+            branches:
+              only: master

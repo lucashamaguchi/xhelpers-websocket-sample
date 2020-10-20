@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $K8S_NAMESPACE
+
+---
+
+# deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: $K8S_NAMESPACE
+  annotations:
+    secret.reloader.stakater.com/reload: $SERVICE_NAME
+  labels:
+    name: $SERVICE_NAME_TAG
+  name: $SERVICE_NAME
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      name: $SERVICE_NAME_TAG
+  template:
+    metadata:
+      labels:
+        name: $SERVICE_NAME_TAG
+    spec:
+      containers:
+      - name: $SERVICE_NAME
+        image: $IMAGE_REPO_URL
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: 100m
+            memory: 300M
+        ports:
+        - containerPort: 80
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+        envFrom:
+          - secretRef:
+              name: $SERVICE_NAME
+
+---
+
+# service
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: $K8S_NAMESPACE
+  name: $SERVICE_NAME
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+    service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"
+spec:
+  ports:
+  - name: http
+    targetPort: 80
+    port: 80
+  - name: https
+    targetPort: 443
+    port: 443
+  selector:
+    name: $SERVICE_NAME_TAG
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+
+---
+
+# dns
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  namespace: $K8S_NAMESPACE
+  name: $SERVICE_NAME_TAG 
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"  # increase timeout for websocket
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"  # increase timeout for websocket
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    cert-manager.io/issue-temporary-certificate: "$CERT_MANAGER_ISSUE_TEMPORARY_CERTICATE"  # temporary cert required for nginx to be able to reload
+    acme.cert-manager.io/http01-edit-in-place: "$INGRESS_EDIT_IN_PLACE"  # important to merge with existing ingress resource into a single nginx config file
+spec:
+  tls:
+  - hosts:
+    - $SERVICE_URL
+    secretName: $SERVICE_NAME-tls
+  rules:
+  - host: $SERVICE_URL
+    http:
+      paths:
+      - backend:
+          serviceName: $SERVICE_NAME
+          servicePort: 80
