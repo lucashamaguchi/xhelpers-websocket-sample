@@ -47,6 +47,40 @@ jobs:
         - <<: *install-environment-requirements
         - <<: *install-python-requirements
         - <<: *test
+
+  build-dockerhub:
+    docker:
+      - image: circleci/python:3.6.6-stretch-browsers
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: "Login in to docker hub"
+          command: docker login --username=$DOCKER_HUB_USER --password=$DOCKER_HUB_PASSWORD
+
+      - run:
+          name: "Prepare Environment"
+          command: |
+            if [ ${CIRCLE_BRANCH} == "master" ]
+            then
+              echo "export ENV=production" >> $BASH_ENV
+              echo "export DEBUG=False" >> $BASH_ENV
+            else
+              echo "export ENV=staging" >> $BASH_ENV
+              echo "export DEBUG=False" >> $BASH_ENV
+            fi
+
+            source $BASH_ENV
+
+      - run:
+          name: "build and push"
+          command: |
+            export COMMIT_TAG="${DOCKER_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
+            export TAG_LATEST="${DOCKER_REPOSITORY}:latest-${ENV}"
+            docker build -t $TAG_LATEST -t $COMMIT_TAG .
+            docker push $TAG_LATEST
+            docker push $COMMIT_TAG
+
   build:
     docker:
       - image: circleci/python:3.6.6-stretch-browsers
@@ -169,7 +203,7 @@ workflows:
       #       branches:
       #         only: 
       #           - master
-      - build:
+      - build-dockerhub:
           context: production
           filters:
             branches:
