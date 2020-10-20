@@ -48,6 +48,7 @@ class TodoRoutes extends BaseRoute<TodoService> {
           response: {
             ...response,
             ...r.payload,
+            method: "POST",
           }
         });
         return h
@@ -69,6 +70,7 @@ class TodoRoutes extends BaseRoute<TodoService> {
           response: {
             ...response,
             ...r.payload,
+            method: "PATCH",
           }
         });
         return h
@@ -90,6 +92,7 @@ class TodoRoutes extends BaseRoute<TodoService> {
           response: {
             ...response,
             ...r.payload,
+            method: "PUT",
           }
         });
         return h
@@ -108,7 +111,10 @@ class TodoRoutes extends BaseRoute<TodoService> {
         await this.service.delete({}, r.params.id)
         await server.publish("/todo", {
           message: "[DELETE] deleted todo",
-          response: {}
+          response: {
+            method: "DELETE",
+            id: r.params.id
+          }
         });
         return h
           .response({})
