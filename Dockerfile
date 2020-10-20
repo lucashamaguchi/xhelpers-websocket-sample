@@ -25,14 +25,13 @@ WORKDIR /app
 COPY ./package.json /app/package.json
 COPY ./package-lock.json /app/package-lock.json
 COPY ./tsconfig.json /app/tsconfig.json
-COPY ./entrypoint.sh /app/entrypoint.sh
 COPY --from=build-env /app/dist /app/dist
 
 WORKDIR /app
 
-RUN npm i --production && \
-    npm audit fix
+RUN npm ci
+RUN npm audit fix
 
 ENV NODE_ENV=PROD
-
-ENTRYPOINT [ "sh", "/app/entrypoint.sh" ]
+ENV HOST=0.0.0.0
+CMD ["npm", "start"]
