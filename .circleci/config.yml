@@ -128,8 +128,13 @@ jobs:
       - run:
           name: Deploy
           command: |
-            export IMAGE_REPO_URL="${ECR_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
-            
+            if [ "${ECR_REPOSITORY}" == "" ]
+            then
+              export IMAGE_REPO_URL="${DOCKER_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
+            else
+              export IMAGE_REPO_URL="${ECR_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
+            fi
+
             if [ ${ENV} == "production" ]
             then
               export SERVICE_URL="${SERVICE_URL}"
