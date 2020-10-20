@@ -170,7 +170,7 @@ workflows:
       #         only: 
       #           - master
       - build:
-          context: development-viajjar
+          context: production
           filters:
             branches:
               only: 
@@ -180,7 +180,7 @@ workflows:
       - deploy:
           requires:
             - build
-          context: development-viajjar
+          context: production
           filters:
             branches:
               only: master
