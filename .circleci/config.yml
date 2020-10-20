@@ -48,39 +48,6 @@ jobs:
         - <<: *install-python-requirements
         - <<: *test
 
-  build-dockerhub:
-    docker:
-      - image: circleci/python:3.6.6-stretch-browsers
-    steps:
-      - checkout
-      - setup_remote_docker
-      - run:
-          name: "Login in to docker hub"
-          command: docker login --username=$DOCKER_HUB_USER --password=$DOCKER_HUB_PASSWORD
-
-      - run:
-          name: "Prepare Environment"
-          command: |
-            if [ ${CIRCLE_BRANCH} == "master" ]
-            then
-              echo "export ENV=production" >> $BASH_ENV
-              echo "export DEBUG=False" >> $BASH_ENV
-            else
-              echo "export ENV=staging" >> $BASH_ENV
-              echo "export DEBUG=False" >> $BASH_ENV
-            fi
-
-            source $BASH_ENV
-
-      - run:
-          name: "build and push"
-          command: |
-            export COMMIT_TAG="${DOCKER_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
-            export TAG_LATEST="${DOCKER_REPOSITORY}:latest-${ENV}"
-            docker build -t $TAG_LATEST -t $COMMIT_TAG .
-            docker push $TAG_LATEST
-            docker push $COMMIT_TAG
-
   build:
     docker:
       - image: circleci/python:3.6.6-stretch-browsers
@@ -94,8 +61,16 @@ jobs:
             sudo pip install awscli
 
       - run:
-          name: "Login in to AWS ECR"
-          command: eval $(aws ecr get-login --region $ECR_REGION --no-include-email)
+          name: "Login in to Repository"
+          command: |
+            if [ "${ECR_REPOSITORY}" != "" ]
+            then
+              eval $(aws ecr get-login --region $ECR_REGION --no-include-email)
+            fi
+            if [ "${DOCKER_REPOSITORY}" != "" ]
+            then
+              docker login --username=$DOCKER_HUB_USER --password=$DOCKER_HUB_PASSWORD
+            fi
 
       - run:
           name: "Prepare Environment"
@@ -105,8 +80,14 @@ jobs:
       - run:
           name: "build and push"
           command: |
-            export COMMIT_TAG="${ECR_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
-            export TAG_LATEST="${ECR_REPOSITORY}:latest-${ENV}"
+            if [ "${ECR_REPOSITORY}" != "" ]
+            then
+              export COMMIT_TAG="${ECR_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
+              export TAG_LATEST="${ECR_REPOSITORY}:latest-${ENV}"
+            else
+              export COMMIT_TAG="${DOCKER_REPOSITORY}:${CIRCLE_SHA1}-${ENV}"
+              export TAG_LATEST="${DOCKER_REPOSITORY}:latest-${ENV}"
+            fi
             docker build -t $TAG_LATEST -t $COMMIT_TAG .
             docker push $TAG_LATEST
             docker push $COMMIT_TAG
@@ -208,7 +189,7 @@ workflows:
       #       branches:
       #         only: 
       #           - master
-      - build-dockerhub:
+      - build:
           context: production
           filters:
             branches:
