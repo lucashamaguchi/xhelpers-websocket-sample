@@ -1,4 +1,10 @@
-# xhelpers-todo-sample-api
+# xhelpers-websocket-sample
+
+## Check out the live examples:
+ - [Todo Web WS](https://todos-ws.hamaguchi.site) ([Backend](https://websocket.api.hamaguchi.site/documentation))
+
+## Check out the front source
+ - [Todo Web WS](https://github.com/lucashamaguchi/todo-sample-websocket-web)
 
 ## Main Dependencies and Requisites
 
